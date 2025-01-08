@@ -5,19 +5,20 @@ use serde::{Deserialize, Serialize};
 use crate::state::{State, UserInfo};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MigrateMsg {}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     pub admin: String,
     pub token_address: String,
     pub total_supply: Uint128,
-    pub presale_start: u64,
-    pub presale_period: u64,
-    pub token_ratio: Uint128,
+    pub airdrop_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
-    BuyToken {},
+    Claim {},
     ChangeAdmin { address: String },
     UpdateConfig { state: State },
     WithdrawTokenByAdmin {},

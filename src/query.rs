@@ -33,8 +33,7 @@ pub fn query_user_info(deps: Deps, address: String) -> StdResult<UserInfoRespons
         None => {
             let user_info = UserInfo {
                 address,
-                bought_token_amount: Uint128::zero(),
-                sent_juno: Uint128::zero(),
+                is_claimed: false,
             };
             Ok(UserInfoResponse { user_info })
         }

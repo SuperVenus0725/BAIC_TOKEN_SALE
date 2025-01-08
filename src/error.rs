@@ -33,12 +33,12 @@ pub enum ContractError {
     #[error("Presale is not finished")]
     PresaleNotEnded {},
 
-    #[error("You have to wait for the next step")]
-    AlreadyClaimedForCurrentStep {},
-
-    #[error("You did not do in the presale.")]
-    NotInPresale {},
+    #[error("You already claimed")]
+    AlreadyClaimed {},
 
     #[error("There are no enough tokens as your demand")]
     NoEnoughTokens {},
+
+    #[error("Cannot migrate from different contract type: {previous_contract}")]
+    CannotMigrate { previous_contract: String },
 }

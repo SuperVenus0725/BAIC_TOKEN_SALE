@@ -12,22 +12,18 @@ pub struct State {
     pub admin: String,
     pub token_address: String,
     pub total_supply: Uint128,
-    pub presale_start: u64,
-    pub presale_period: u64,
-    pub token_ratio: Uint128,
+    pub airdrop_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct SaleInfo {
-    pub token_sold_amount: Uint128,
-    pub earned_juno: Uint128,
+    pub total_aridropped_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct UserInfo {
     pub address: String,
-    pub bought_token_amount: Uint128,
-    pub sent_juno: Uint128,
+    pub is_claimed: bool,
 }
 
 pub type UserInfoKey<'a> = String;

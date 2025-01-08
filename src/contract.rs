@@ -3,11 +3,11 @@ use cosmwasm_std::{
     Response, StdResult, Uint128, WasmMsg,
 };
 
-use cw2::set_contract_version;
+use cw2::{get_contract_version, set_contract_version};
 use cw20::Cw20ExecuteMsg;
 
 use crate::error::ContractError;
-use crate::msg::{ExecuteMsg, InstantiateMsg};
+use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg};
 use crate::state::{user_info_key, user_info_storage, SaleInfo, State, UserInfo, CONFIG, SALEINFO};
 
 const CONTRACT_NAME: &str = "BANANA_SALE";
@@ -27,27 +27,19 @@ pub fn instantiate(
     deps.api.addr_validate(&msg.admin)?;
     deps.api.addr_validate(&msg.token_address)?;
 
-    let crr_time = env.block.time.seconds();
-    if crr_time > msg.presale_start {
-        return Err(ContractError::WrongConfig {});
-    }
-
-    //presale start, end and claim period check
+    //presale start, end and claim period validation
     let state = State {
         admin: msg.admin,
         token_address: msg.token_address,
         total_supply: msg.total_supply,
-        presale_start: msg.presale_start,
-        presale_period: msg.presale_period,
-        token_ratio: msg.token_ratio,
+        airdrop_amount: msg.airdrop_amount,
     };
     CONFIG.save(deps.storage, &state)?;
 
     SALEINFO.save(
         deps.storage,
         &SaleInfo {
-            token_sold_amount: Uint128::zero(),
-            earned_juno: Uint128::zero(),
+            total_aridropped_amount: Uint128::zero(),
         },
     )?;
 
@@ -62,44 +54,30 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::BuyToken {} => execute_buy_token(deps, env, info),
+        ExecuteMsg::Claim {} => execute_claim(deps, env, info),
         ExecuteMsg::ChangeAdmin { address } => execute_change_admin(deps, env, info, address),
         ExecuteMsg::UpdateConfig { state } => execute_update_config(deps, env, info, state),
         ExecuteMsg::WithdrawTokenByAdmin {} => execute_withdraw_token_by_admin(deps, env, info),
     }
 }
 
-fn execute_buy_token(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-) -> Result<Response, ContractError> {
+fn execute_claim(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let state = CONFIG.load(deps.storage)?;
     let sender = info.sender.to_string();
 
     //presale start validation check
-    let crr_time = env.block.time.seconds();
-    if crr_time < state.presale_start {
-        return Err(ContractError::PresaleNotStarted {});
-    };
-    if crr_time > state.presale_start + state.presale_period {
-        return Err(ContractError::PresaleEnded {});
-    }
-
-    let received_coin = get_coin_info(&info)?;
 
     //token_amount checking
-    let token_amount = received_coin.amount * state.token_ratio;
+    let token_amount = state.airdrop_amount;
     let sale_info = SALEINFO.load(deps.storage)?;
 
-    if token_amount + sale_info.token_sold_amount > state.total_supply {
+    if token_amount + sale_info.total_aridropped_amount > state.total_supply {
         return Err(ContractError::NoEnoughTokens {});
     }
 
     //sale info update
     SALEINFO.update(deps.storage, |mut sale_info| -> StdResult<_> {
-        sale_info.earned_juno = sale_info.earned_juno + received_coin.amount;
-        sale_info.token_sold_amount = sale_info.token_sold_amount + token_amount;
+        sale_info.total_aridropped_amount = sale_info.total_aridropped_amount + token_amount;
         Ok(sale_info)
     })?;
 
@@ -107,26 +85,20 @@ fn execute_buy_token(
 
     //user info update
     let user_info = user_info_storage().may_load(deps.storage, user_info_key.clone())?;
-    match user_info {
-        Some(mut user_info) => {
-            user_info.sent_juno = user_info.sent_juno + received_coin.amount;
-            user_info.bought_token_amount = user_info.bought_token_amount + token_amount;
-            user_info_storage().save(deps.storage, user_info_key, &user_info)?;
-        }
-        None => {
-            user_info_storage().save(
-                deps.storage,
-                user_info_key,
-                &UserInfo {
-                    address: sender.clone(),
-                    bought_token_amount: token_amount,
-                    sent_juno: received_coin.amount,
-                },
-            )?;
-        }
+    if !user_info.is_none() {
+        return Err(ContractError::AlreadyClaimed {});
     }
 
-    //messages handling
+    user_info_storage().save(
+        deps.storage,
+        user_info_key,
+        &UserInfo {
+            address: sender.clone(),
+            is_claimed: true,
+        },
+    )?;
+
+    //messages handling for token transfer and coin send
     let mut messages: Vec<CosmosMsg> = Vec::new();
     let token_transfer_msg = Cw20ExecuteMsg::Transfer {
         recipient: sender.clone(),
@@ -139,20 +111,9 @@ fn execute_buy_token(
         funds: vec![],
     }));
 
-    let coin_send_msg = BankMsg::Send {
-        to_address: state.admin,
-        amount: vec![Coin {
-            denom: JUNO.to_string(),
-            amount: received_coin.amount,
-        }],
-    };
-    messages.push(CosmosMsg::Bank(coin_send_msg));
-
     Ok(Response::new()
-        .add_attribute("action", "buy_token")
-        .add_attribute("denom", received_coin.denom)
-        .add_attribute("amount", received_coin.amount.to_string())
-        .add_attribute("buyer", sender)
+        .add_attribute("action", "claim")
+        .add_attribute("claimer", sender)
         .add_messages(messages))
 }
 
@@ -196,18 +157,12 @@ fn execute_withdraw_token_by_admin(
 
     let state = CONFIG.load(deps.storage)?;
     let sale_info = SALEINFO.load(deps.storage)?;
-    let crr_time = env.block.time.seconds();
-    let presale_end = state.presale_start + state.presale_period;
-
-    if crr_time < presale_end {
-        return Err(ContractError::PresaleNotEnded {});
-    }
 
     let cw20_transfer_msg = WasmMsg::Execute {
         contract_addr: "token_address".to_string(),
         msg: to_binary(&Cw20ExecuteMsg::Transfer {
             recipient: state.admin,
-            amount: state.total_supply - sale_info.token_sold_amount,
+            amount: state.total_supply - sale_info.total_aridropped_amount,
         })?,
         funds: vec![],
     };
@@ -237,4 +192,15 @@ fn get_coin_info(info: &MessageInfo) -> Result<Coin, ContractError> {
         }
         Ok(info.funds[0].clone())
     }
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    let version = get_contract_version(deps.storage)?;
+    if version.contract != CONTRACT_NAME {
+        return Err(ContractError::CannotMigrate {
+            previous_contract: version.contract,
+        });
+    }
+    Ok(Response::default())
 }

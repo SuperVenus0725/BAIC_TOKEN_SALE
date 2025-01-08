@@ -2,8 +2,8 @@ use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 use std::env::current_dir;
 use std::fs::create_dir_all;
 
-use BANANA_SALE::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use BANANA_SALE::state::State;
+use BETFI_AIRDROP::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use BETFI_AIRDROP::state::State;
 
 fn main() {
     let mut out_dir = current_dir().unwrap();
